@@ -1,0 +1,1007 @@
+<!--
+  Valorant Rank Overlay
+  ---------------------
+  Built with AI assistance (Claude, Anthropic).
+  Uses the unofficial HenrikDev Valorant API (https://docs.henrikdev.xyz) —
+  not affiliated with or endorsed by Riot Games.
+  Rank icons served from media.valorant-api.com (community-run asset mirror).
+
+  License: MIT — free to use, modify, and redistribute. See LICENSE in the repo.
+
+  How it works:
+  - Open this page normally -> Editor mode: customize on the left, live
+    preview of the real overlay (with your real rank data) on the right.
+  - Click "Copy OBS Link" -> your whole config gets encoded into the URL
+    (?cfg=...). Paste THAT link into an OBS Browser Source -> it renders
+    just the clean overlay card, no editor UI, no setup screen.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Valorant Rank Overlay</title>
+<style>
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* ================= EDITOR MODE ================= */
+  body.editor {
+    background: #14161d;
+    min-height: 100vh;
+  }
+
+  #editorLayout {
+    display: none;
+  }
+  body.editor #editorLayout {
+    display: flex;
+    min-height: 100vh;
+    align-items: flex-start;
+  }
+  body.editor #previewStage {
+    display: flex;
+  }
+
+  #panel {
+    width: 420px;
+    max-width: 100%;
+    flex-shrink: 0;
+    min-height: 100vh;
+    overflow-y: auto;
+    padding: 26px;
+    background: #1c1f29;
+    border-right: 1px solid #2c303c;
+    color: #f2f0ea;
+  }
+
+  #previewStage {
+    flex: 1;
+    display: none;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    background:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px) 0 0/24px 24px,
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px) 0 0/24px 24px,
+      #101218;
+    position: relative;
+  }
+
+  #previewLabel {
+    position: absolute;
+    top: 18px;
+    left: 24px;
+    font-size: 11px;
+    letter-spacing: 0.4px;
+    color: #5a5d68;
+    font-family: monospace;
+  }
+
+  #previewRow {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 28px;
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  #previewWrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  #errorPanel {
+    display: none;
+    width: 300px;
+    max-width: 100%;
+    padding: 16px 18px;
+    background: #241a1d;
+    border: 1px solid rgba(255,61,87,0.4);
+    border-radius: 10px;
+    color: #f2f0ea;
+  }
+  #errorPanel.show { display: block; }
+
+  #errorPanel .errIcon {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(255,61,87,0.15);
+    color: #ff5f6d;
+    border: 1px solid rgba(255,61,87,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+
+  #errorPanel .errTitle {
+    font-size: 14px;
+    font-weight: 700;
+    color: #ff8a94;
+    margin-bottom: 8px;
+    line-height: 1.35;
+  }
+
+  #errorPanel .errDetail {
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: #c7c3c9;
+  }
+
+  @media (max-width: 900px) {
+    body.editor #editorLayout { flex-direction: column; }
+    #panel { width: 100%; min-height: auto; border-right: none; border-bottom: 1px solid #2c303c; }
+    #previewStage { min-height: 320px; width: 100%; padding: 60px 16px 24px; }
+    #previewRow { flex-direction: column; align-items: center; }
+    #errorPanel { width: 100%; max-width: 340px; }
+  }
+
+  #panel h1 {
+    font-size: 16px;
+    margin: 0 0 4px;
+  }
+  #panel h2 {
+    font-size: 12px;
+    color: #ff3d57;
+    margin: 20px 0 10px;
+    padding-top: 14px;
+    border-top: 1px solid #2c303c;
+  }
+  #panel h2:first-of-type { border-top: none; padding-top: 0; margin-top: 16px; }
+
+  #panel p.sub {
+    font-size: 12px;
+    color: #9a9aa3;
+    margin: 0 0 18px;
+    line-height: 1.5;
+  }
+
+  #panel label {
+    display: block;
+    font-size: 11px;
+    color: #9a9aa3;
+    margin-bottom: 4px;
+  }
+
+  #panel input[type=text], #panel input[type=password], #panel select {
+    width: 100%;
+    padding: 9px 10px;
+    margin-bottom: 12px;
+    background: #14161d;
+    border: 1px solid #2c303c;
+    border-radius: 6px;
+    color: #f2f0ea;
+    font-size: 13px;
+  }
+
+  #panel input[type=color] {
+    width: 100%;
+    height: 34px;
+    padding: 2px;
+    margin-bottom: 12px;
+    background: #14161d;
+    border: 1px solid #2c303c;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  #panel input[type=range] {
+    width: 100%;
+    margin-bottom: 4px;
+  }
+
+  #panel .rangeval {
+    font-size: 11px;
+    color: #9a9aa3;
+    margin-bottom: 12px;
+  }
+
+  #panel .row { display: flex; gap: 10px; }
+  #panel .row > div { flex: 1; }
+
+  @media (max-width: 480px) {
+    #panel .row { flex-direction: column; gap: 0; }
+    .layout-choice { flex-direction: column; }
+    #panel input[type=text], #panel input[type=password], #panel select,
+    #panel input[type=color] {
+      font-size: 16px;
+    }
+  }
+
+  .toggle-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px solid #24272f;
+    font-size: 13px;
+  }
+  .toggle-item:last-child { border-bottom: none; }
+
+  .switch {
+    position: relative;
+    width: 44px;
+    height: 26px;
+    flex-shrink: 0;
+  }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: #33374350;
+    border: 1px solid #2c303c;
+    border-radius: 21px;
+    transition: 0.15s;
+  }
+  .slider:before {
+    content: "";
+    position: absolute;
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    top: 3px;
+    background: #9a9aa3;
+    border-radius: 50%;
+    transition: 0.15s;
+  }
+  .switch input:checked + .slider { background: #ff3d5750; border-color: #ff3d57; }
+  .switch input:checked + .slider:before { transform: translateX(18px); background: #ff3d57; }
+
+  #panel button.primary {
+    width: 100%;
+    padding: 11px;
+    margin-top: 18px;
+    background: #ff3d57;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #panel button.primary:hover { filter: brightness(1.08); }
+  #panel button.primary.copied { background: #4fd67a; }
+
+  #panel .err {
+    color: #ff3d57;
+    font-size: 11px;
+    margin-top: -4px;
+    margin-bottom: 8px;
+    min-height: 14px;
+  }
+
+  #panel .obslink {
+    margin-top: 10px;
+    display: none;
+  }
+  #panel .obslink.show { display: block; }
+  #panel .obslink textarea {
+    width: 100%;
+    height: 62px;
+    resize: none;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 8px;
+    background: #14161d;
+    border: 1px solid #2c303c;
+    border-radius: 6px;
+    color: #9a9aa3;
+  }
+  #panel .obslink .hint {
+    font-size: 11px;
+    color: #5a5d68;
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  #panel .credit {
+    margin: 16px 0 0;
+    font-size: 10px;
+    line-height: 1.5;
+    color: #5a5d68;
+    text-align: center;
+  }
+
+  .layout-choice {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .layout-choice label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    background: #14161d;
+    border: 1px solid #2c303c;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-bottom: 0;
+    color: #f2f0ea;
+  }
+  .layout-choice input { display: none; }
+  .layout-choice input:checked + span { color: #ff3d57; font-weight: 600; }
+  .layout-choice label:has(input:checked) { border-color: #ff3d57; }
+
+  /* ================= OVERLAY CARD (shared by preview + OBS mode) ================= */
+  #card {
+    display: none;
+    color: var(--c-text);
+  }
+  #card.show { display: block; }
+
+  #card.horizontal { width: var(--c-width); max-width: 94vw; padding: var(--c-pad); background: var(--c-bg); border: 1px solid var(--c-border); border-radius: var(--c-radius); }
+  #card.vertical { width: var(--c-vwidth); max-width: 60vw; padding: var(--c-pad); background: var(--c-bg); border: 1px solid var(--c-border); border-radius: var(--c-radius); text-align: center; }
+  #card.compact { padding: calc(var(--c-pad) * 0.55); }
+
+  @media (max-width: 420px) {
+    body:not(.editor) #card.horizontal { width: 92vw; }
+    body:not(.editor) #card.vertical { width: 70vw; }
+    #rankIcon { width: calc(var(--c-iconsize) * 0.85); height: calc(var(--c-iconsize) * 0.85); }
+    .tier { white-space: normal; }
+  }
+
+  .row1 {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  #card.vertical .row1 { flex-direction: column; gap: 6px; }
+  #card.compact .row1 { gap: 8px; }
+
+  #rankIcon {
+    width: var(--c-iconsize);
+    height: var(--c-iconsize);
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 6px var(--c-glow));
+  }
+
+  .info { flex: 1; min-width: 0; }
+  #card.vertical .info { flex: none; width: 100%; }
+
+  .name {
+    font-size: calc(var(--c-fontscale) * 13px);
+    color: var(--c-dim);
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tier {
+    font-size: calc(var(--c-fontscale) * 21px);
+    font-weight: 700;
+    line-height: 1.25;
+    white-space: nowrap;
+    color: var(--c-text);
+  }
+  #card.compact .tier { font-size: calc(var(--c-fontscale) * 16px); }
+
+  .rr {
+    font-size: calc(var(--c-fontscale) * 13px);
+    color: var(--c-accent2);
+    font-weight: 600;
+  }
+
+  .lastmatch {
+    font-size: calc(var(--c-fontscale) * 11px);
+    margin-top: 2px;
+    font-weight: 600;
+  }
+  .lastmatch.win { color: #4fd67a; }
+  .lastmatch.loss { color: #ff5f6d; }
+
+  .rrbar {
+    margin-top: 8px;
+    height: 5px;
+    width: 100%;
+    background: rgba(255,255,255,0.08);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .rrbar > div {
+    height: 100%;
+    background: linear-gradient(90deg, var(--c-accent), var(--c-accent2));
+    transition: width 0.6s ease;
+  }
+
+  .peakRow {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: calc(var(--c-fontscale) * 12px);
+    color: var(--c-dim);
+  }
+  #card.horizontal .peakRow { justify-content: flex-start; }
+
+  .peakRow img { width: 20px; height: 20px; }
+  .peakRow b { color: var(--c-text); font-weight: 600; }
+
+  #status {
+    font-size: 11px;
+    margin-top: 14px;
+    color: #ff8a94;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    display: none;
+  }
+  #status.error { display: block; }
+  #status:empty { display: none; }
+
+  body:not(.editor) #status {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    margin-top: 0;
+    padding: 5px 10px;
+    background: rgba(14,16,21,0.7);
+    border-radius: 20px;
+    backdrop-filter: blur(4px);
+  }
+</style>
+</head>
+<body>
+
+<div id="editorLayout">
+  <div id="panel">
+    <h1>Valorant Rank Overlay</h1>
+    <p class="sub">Customize on the left — the live preview on the right updates as you go, using your real rank data. When you're happy, copy the OBS link at the bottom.</p>
+
+    <h2>Account</h2>
+    <label>Riot Name</label>
+    <input type="text" id="inName" placeholder="e.g. Henrik3">
+    <div class="row">
+      <div>
+        <label>Tag</label>
+        <input type="text" id="inTag" placeholder="e.g. VALO">
+      </div>
+      <div>
+        <label>Region</label>
+        <select id="inRegion">
+          <option value="na">NA</option>
+          <option value="eu">EU</option>
+          <option value="ap">AP</option>
+          <option value="kr">KR</option>
+          <option value="latam">LATAM</option>
+          <option value="br">BR</option>
+        </select>
+      </div>
+    </div>
+    <label>HenrikDev API Key (optional but recommended)</label>
+    <input type="password" id="inKey" placeholder="HDEV-...">
+
+    <h2>What to show</h2>
+    <div class="toggle-item">
+      <span>Riot name#tag</span>
+      <label class="switch"><input type="checkbox" id="tName" checked><span class="slider"></span></label>
+    </div>
+    <div class="toggle-item">
+      <span>Rank icon</span>
+      <label class="switch"><input type="checkbox" id="tIcon" checked><span class="slider"></span></label>
+    </div>
+    <div class="toggle-item">
+      <span>Current RR (text)</span>
+      <label class="switch"><input type="checkbox" id="tRR" checked><span class="slider"></span></label>
+    </div>
+    <div class="toggle-item">
+      <span>RR progress bar</span>
+      <label class="switch"><input type="checkbox" id="tBar" checked><span class="slider"></span></label>
+    </div>
+    <div class="toggle-item">
+      <span>Peak rank row</span>
+      <label class="switch"><input type="checkbox" id="tPeak" checked><span class="slider"></span></label>
+    </div>
+    <div class="toggle-item">
+      <span>Last match result (win/loss + RR change)</span>
+      <label class="switch"><input type="checkbox" id="tLast"><span class="slider"></span></label>
+    </div>
+
+    <h2>Layout</h2>
+    <div class="layout-choice">
+      <label><input type="radio" name="layout" value="horizontal" checked><span>Horizontal</span></label>
+      <label><input type="radio" name="layout" value="vertical"><span>Vertical</span></label>
+    </div>
+    <div class="toggle-item">
+      <span>Compact mode (smaller padding/fonts)</span>
+      <label class="switch"><input type="checkbox" id="tCompact"><span class="slider"></span></label>
+    </div>
+    <label>Font scale</label>
+    <input type="range" id="rFontScale" min="0.7" max="1.5" step="0.05" value="1">
+    <div class="rangeval" id="rFontScaleVal">1.0x</div>
+
+    <h2>Colors &amp; background</h2>
+    <div class="row">
+      <div>
+        <label>Accent color 1</label>
+        <input type="color" id="cAccent" value="#ff3d57">
+      </div>
+      <div>
+        <label>Accent color 2</label>
+        <input type="color" id="cAccent2" value="#e8c766">
+      </div>
+    </div>
+    <label>Text color</label>
+    <input type="color" id="cText" value="#f2f0ea">
+
+    <label>Background color</label>
+    <input type="color" id="cBg" value="#0e1015">
+    <label>Background opacity</label>
+    <input type="range" id="rBgOpacity" min="0" max="100" step="1" value="88">
+    <div class="rangeval" id="rBgOpacityVal">88%</div>
+
+    <label>Custom background image URL (optional — overrides color)</label>
+    <input type="text" id="cBgImage" placeholder="https://...">
+
+    <label>Corner radius</label>
+    <input type="range" id="rRadius" min="0" max="30" step="1" value="8">
+    <div class="rangeval" id="rRadiusVal">8px</div>
+
+    <div class="err" id="setupErr"></div>
+    <button class="primary" id="copyBtn" onclick="copyObsLink()">Copy OBS Link</button>
+
+    <div class="obslink" id="obslinkBox">
+      <textarea id="obslinkText" readonly onclick="this.select()"></textarea>
+      <div class="hint">Paste this into an OBS Browser Source URL field. It loads directly into the clean overlay — no setup screen, no editor panel.</div>
+    </div>
+
+    <p class="credit">Built with AI (Claude). Uses the unofficial HenrikDev Valorant API — not affiliated with Riot Games. MIT licensed.</p>
+  </div>
+
+  <div id="previewStage">
+    <span id="previewLabel">LIVE PREVIEW</span>
+    <div id="previewRow">
+      <div id="previewWrap">
+        <div id="card">
+          <div class="row1">
+            <img id="rankIcon" src="" alt="">
+            <div class="info">
+              <div class="name" id="riotName">-</div>
+              <div class="tier" id="tierName">-</div>
+              <div class="rr" id="rrText">- RR</div>
+              <div class="lastmatch" id="lastMatchText"></div>
+            </div>
+          </div>
+          <div class="rrbar" id="rrBarWrap"><div id="rrFill" style="width:0%"></div></div>
+          <div class="peakRow" id="peakRow">
+            <img id="peakIcon" src="" alt="">
+            <span>Peak: <b id="peakText">-</b></span>
+          </div>
+        </div>
+        <div id="status"><span id="statusText"></span></div>
+      </div>
+
+      <div id="errorPanel">
+        <div class="errIcon">!</div>
+        <div class="errTitle" id="errTitle"></div>
+        <div class="errDetail" id="errDetail"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const REFRESH_MS = 60000;
+const LS_KEY = 'valo_overlay_cfg_v3';
+
+function $(id) { return document.getElementById(id); }
+
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  const bigint = parseInt(h, 16);
+  return `${(bigint >> 16) & 255}, ${(bigint >> 8) & 255}, ${bigint & 255}`;
+}
+
+function isObsMode() {
+  return new URLSearchParams(location.search).has('cfg');
+}
+
+function encodeCfg(cfg) {
+  const json = JSON.stringify(cfg);
+  return btoa(unescape(encodeURIComponent(json)));
+}
+
+function decodeCfg(str) {
+  const json = decodeURIComponent(escape(atob(str)));
+  return JSON.parse(json);
+}
+
+function loadCfg() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || 'null'); }
+  catch { return null; }
+}
+
+function readForm() {
+  const name = $('inName').value.trim();
+  const tag = $('inTag').value.trim().replace(/^#/, '');
+  const region = $('inRegion').value;
+  const key = $('inKey').value.trim();
+
+  return {
+    name, tag, region, key,
+    show: {
+      name: $('tName').checked,
+      icon: $('tIcon').checked,
+      rr: $('tRR').checked,
+      bar: $('tBar').checked,
+      peak: $('tPeak').checked,
+      last: $('tLast').checked,
+    },
+    layout: document.querySelector('input[name=layout]:checked').value,
+    compact: $('tCompact').checked,
+    fontScale: parseFloat($('rFontScale').value),
+    accent: $('cAccent').value,
+    accent2: $('cAccent2').value,
+    text: $('cText').value,
+    bg: $('cBg').value,
+    bgOpacity: parseInt($('rBgOpacity').value, 10),
+    bgImage: $('cBgImage').value.trim(),
+    radius: parseInt($('rRadius').value, 10),
+  };
+}
+
+function populateForm(cfg) {
+  $('inName').value = cfg.name || '';
+  $('inTag').value = cfg.tag || '';
+  $('inRegion').value = cfg.region || 'na';
+  $('inKey').value = cfg.key || '';
+  $('tName').checked = cfg.show.name;
+  $('tIcon').checked = cfg.show.icon;
+  $('tRR').checked = cfg.show.rr;
+  $('tBar').checked = cfg.show.bar;
+  $('tPeak').checked = cfg.show.peak;
+  $('tLast').checked = cfg.show.last;
+  document.querySelector(`input[name=layout][value="${cfg.layout}"]`).checked = true;
+  $('tCompact').checked = cfg.compact;
+  $('rFontScale').value = cfg.fontScale;
+  $('rFontScaleVal').textContent = cfg.fontScale.toFixed(2) + 'x';
+  $('cAccent').value = cfg.accent;
+  $('cAccent2').value = cfg.accent2;
+  $('cText').value = cfg.text;
+  $('cBg').value = cfg.bg;
+  $('rBgOpacity').value = cfg.bgOpacity;
+  $('rBgOpacityVal').textContent = cfg.bgOpacity + '%';
+  $('cBgImage').value = cfg.bgImage || '';
+  $('rRadius').value = cfg.radius;
+  $('rRadiusVal').textContent = cfg.radius + 'px';
+}
+
+function defaultCfg() {
+  return {
+    name: '', tag: '', region: 'na', key: '',
+    show: { name: true, icon: true, rr: true, bar: true, peak: true, last: false },
+    layout: 'horizontal', compact: false, fontScale: 1,
+    accent: '#ff3d57', accent2: '#e8c766', text: '#f2f0ea',
+    bg: '#0e1015', bgOpacity: 88, bgImage: '', radius: 8,
+  };
+}
+
+function setStatus(msg, isError) {
+  const el = $('status');
+  const textEl = $('statusText');
+  if (!el || !textEl) return;
+  textEl.textContent = msg;
+  el.classList.toggle('error', !!isError);
+}
+
+function applyStyle(cfg) {
+  const root = document.documentElement.style;
+  root.setProperty('--c-accent', cfg.accent);
+  root.setProperty('--c-accent2', cfg.accent2);
+  root.setProperty('--c-text', cfg.text);
+  root.setProperty('--c-dim', cfg.text + '99');
+  root.setProperty('--c-glow', `rgba(${hexToRgb(cfg.accent)}, 0.35)`);
+  root.setProperty('--c-border', `rgba(${hexToRgb(cfg.accent)}, 0.5)`);
+  root.setProperty('--c-radius', cfg.radius + 'px');
+  root.setProperty('--c-width', '360px');
+  root.setProperty('--c-vwidth', '220px');
+  root.setProperty('--c-pad', '18px 20px');
+  root.setProperty('--c-iconsize', cfg.compact ? '38px' : '54px');
+  root.setProperty('--c-fontscale', cfg.fontScale);
+
+  if (cfg.bgImage) {
+    root.setProperty('--c-bg', `url("${cfg.bgImage}") center/cover no-repeat`);
+  } else {
+    const op = cfg.bgOpacity / 100;
+    root.setProperty('--c-bg', `rgba(${hexToRgb(cfg.bg)}, ${op})`);
+  }
+
+  const card = $('card');
+  card.className = 'show ' + cfg.layout + (cfg.compact ? ' compact' : '');
+
+  $('rankIcon').style.display = cfg.show.icon ? '' : 'none';
+  $('riotName').style.display = cfg.show.name ? '' : 'none';
+  $('rrText').style.display = cfg.show.rr ? '' : 'none';
+  $('rrBarWrap').style.display = cfg.show.bar ? '' : 'none';
+  $('peakRow').style.display = cfg.show.peak ? '' : 'none';
+  $('lastMatchText').style.display = cfg.show.last ? '' : 'none';
+}
+
+async function fetchMMR(cfg) {
+  const url = `https://api.henrikdev.xyz/valorant/v3/mmr/${cfg.region}/pc/${encodeURIComponent(cfg.name)}/${encodeURIComponent(cfg.tag)}`;
+  const headers = {};
+  if (cfg.key) headers['Authorization'] = cfg.key;
+  const res = await fetch(url, { headers });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.status >= 400) {
+    const apiMsg = json.errors && json.errors[0] && json.errors[0].message;
+    const err = new Error(apiMsg || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return json.data;
+}
+
+async function fetchLastChange(cfg) {
+  const url = `https://api.henrikdev.xyz/valorant/v2/mmr-history/${cfg.region}/pc/${encodeURIComponent(cfg.name)}/${encodeURIComponent(cfg.tag)}`;
+  const headers = {};
+  if (cfg.key) headers['Authorization'] = cfg.key;
+  const res = await fetch(url, { headers });
+  const json = await res.json();
+  if (!res.ok || json.status >= 400) return null;
+  const hist = json.data && json.data.history;
+  if (!hist || !hist.length) return null;
+  return hist[0];
+}
+
+function tierIconUrl(tierId) {
+  return `https://media.valorant-api.com/competitivetiers/03621f52-342b-cf4e-4f86-9350a49c6d04/${tierId}/largeicon.png`;
+}
+
+function render(data, lastMatch, cfg) {
+  $('card').classList.add('show');
+  $('riotName').textContent = `${data.account.name}#${data.account.tag}`;
+
+  const cur = data.current;
+  $('tierName').textContent = cur.tier.name;
+  $('rrText').textContent = `${cur.rr} RR`;
+  $('rrFill').style.width = Math.max(0, Math.min(100, cur.rr)) + '%';
+  $('rankIcon').src = tierIconUrl(cur.tier.id);
+
+  const peak = data.peak;
+  $('peakText').textContent = peak.tier.name;
+  $('peakIcon').src = tierIconUrl(peak.tier.id);
+
+  if (cfg.show.last) {
+    const el = $('lastMatchText');
+    if (lastMatch) {
+      const change = lastMatch.last_mmr_change ?? lastMatch.last_change ?? 0;
+      const won = change >= 0;
+      el.textContent = (won ? 'Won' : 'Lost') + ' last match (' + (change >= 0 ? '+' : '') + change + ' RR)';
+      el.className = 'lastmatch ' + (won ? 'win' : 'loss');
+    } else {
+      el.textContent = '';
+    }
+  }
+}
+
+function renderPlaceholder(cfg) {
+  $('card').classList.add('show');
+  $('riotName').textContent = 'YourName#TAG';
+  $('tierName').textContent = 'Diamond 2';
+  $('rrText').textContent = '62 RR';
+  $('rrFill').style.width = '62%';
+  $('rankIcon').src = tierIconUrl(18);
+  $('peakText').textContent = 'Ascendant 1';
+  $('peakIcon').src = tierIconUrl(21);
+  if (cfg.show.last) {
+    const el = $('lastMatchText');
+    el.textContent = 'Won last match (+18 RR)';
+    el.className = 'lastmatch win';
+  }
+}
+
+let pollTimer = null;
+
+async function poll(cfg, isPreview) {
+  if (!cfg.name || !cfg.tag) {
+    if (isPreview) renderPlaceholder(cfg);
+    return;
+  }
+  try {
+    const data = await fetchMMR(cfg);
+    let lastMatch = null;
+    if (cfg.show.last) lastMatch = await fetchLastChange(cfg);
+    render(data, lastMatch, cfg);
+    setStatus('', false);
+    clearErrorPanel();
+  } catch (e) {
+    const info = friendlyError(e);
+    setStatus(info.title, true);
+    if (isPreview) {
+      renderPlaceholder(cfg);
+      showErrorPanel(info);
+    }
+  }
+}
+
+function showErrorPanel(info) {
+  const panel = $('errorPanel');
+  $('errTitle').textContent = info.title;
+  $('errDetail').textContent = info.detail;
+  panel.classList.add('show');
+}
+
+function clearErrorPanel() {
+  const panel = $('errorPanel');
+  if (panel) panel.classList.remove('show');
+}
+
+function friendlyError(err) {
+  const status = err && err.status;
+  const raw = ((err && err.message) || '').toLowerCase();
+
+  if (status === 401 || raw.includes('unauthorized')) {
+    return {
+      title: 'API key rejected (401 Unauthorized)',
+      detail: 'The HenrikDev API key you entered is missing, invalid, or expired. Double-check you copied the full key from the HenrikDev Discord, with no extra spaces. You can also leave the key field blank to use the free unauthenticated tier (lower rate limit, but no key needed).',
+    };
+  }
+  if (status === 400) {
+    return {
+      title: 'Bad request (400)',
+      detail: 'Something about the name, tag, or region looks malformed. Make sure the tag has no "#" in front of it, and the region matches where the account actually plays.',
+    };
+  }
+  if (status === 403) {
+    return {
+      title: "Riot's servers are unreachable (403 Forbidden)",
+      detail: "This usually means Riot's API is temporarily down for maintenance (common right after a patch), or HenrikDev's bot-protection blocked this request. Not something wrong with your settings — it should clear on its own shortly.",
+    };
+  }
+  if (status === 404) {
+    return {
+      title: 'User not found (404)',
+      detail: "No Riot account matches that name + tag in the selected region. Check spelling, capitalization, and that you picked the right region.",
+    };
+  }
+  if (status === 408) {
+    return {
+      title: 'Riot timed out (408)',
+      detail: "Riot's servers took too long to respond. This is temporary — it'll retry automatically on the next refresh.",
+    };
+  }
+  if (status === 429 || raw.includes('rate')) {
+    return {
+      title: 'Rate limited (429)',
+      detail: "Too many requests have been sent to the HenrikDev API recently — either globally or for your key. If you're not using a key, adding a free one from the HenrikDev Discord raises your limit. This will retry automatically.",
+    };
+  }
+  if (status === 501) {
+    return {
+      title: 'API version outdated (501)',
+      detail: 'This overlay is calling an endpoint version HenrikDev no longer supports. This is a bug in the overlay itself, not your settings — please report it.',
+    };
+  }
+  if (raw.includes('failed to fetch') || raw.includes('networkerror') || raw.includes('load failed')) {
+    return {
+      title: 'Could not reach the API',
+      detail: "This usually means one of: your API key is wrong, your Riot name/tag has a typo, or the region/server doesn't match where the account actually plays. Double-check all three and try again.",
+    };
+  }
+  return {
+    title: "Couldn't refresh rank data",
+    detail: (err && err.message) ? `Details: ${err.message}` : 'An unknown error occurred. This will retry automatically on the next refresh.',
+  };
+}
+
+function schedulePoll(cfg, isPreview) {
+  if (pollTimer) clearInterval(pollTimer);
+  poll(cfg, isPreview);
+  pollTimer = setInterval(() => poll(cfg, isPreview), REFRESH_MS);
+}
+
+function copyObsLink() {
+  const cfg = readForm();
+  const err = $('setupErr');
+  if (!cfg.name || !cfg.tag) {
+    err.textContent = 'Enter both name and tag before copying the link.';
+    return;
+  }
+  err.textContent = '';
+  localStorage.setItem(LS_KEY, JSON.stringify(cfg));
+
+  const base = location.origin + location.pathname;
+  const link = base + '?cfg=' + encodeCfg(cfg);
+
+  $('obslinkText').value = link;
+  $('obslinkBox').classList.add('show');
+
+  navigator.clipboard.writeText(link).then(() => {
+    const btn = $('copyBtn');
+    const original = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1800);
+  }).catch(() => {
+    $('obslinkText').select();
+  });
+}
+
+function wireLivePreview() {
+  const ids = ['inName','inTag','inRegion','inKey','tName','tIcon','tRR','tBar','tPeak','tLast',
+    'tCompact','rFontScale','cAccent','cAccent2','cText','cBg','rBgOpacity','cBgImage','rRadius'];
+  ids.forEach(id => {
+    const el = $(id);
+    const evt = (el.type === 'text' || el.type === 'password' || el.type === 'range') ? 'input' : 'change';
+    el.addEventListener(evt, onFormChange);
+  });
+  document.querySelectorAll('input[name=layout]').forEach(el => el.addEventListener('change', onFormChange));
+}
+
+let debounceTimer = null;
+function onFormChange() {
+  applyStyle(readForm());
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    const cfg = readForm();
+    localStorage.setItem(LS_KEY, JSON.stringify(cfg));
+    schedulePoll(cfg, true);
+  }, 500);
+}
+
+function initEditor() {
+  document.body.classList.add('editor');
+  const cfg = loadCfg() || defaultCfg();
+  populateForm(cfg);
+  applyStyle(cfg);
+  wireLivePreview();
+  schedulePoll(cfg, true);
+
+  $('rFontScale').addEventListener('input', e => $('rFontScaleVal').textContent = parseFloat(e.target.value).toFixed(2) + 'x');
+  $('rBgOpacity').addEventListener('input', e => $('rBgOpacityVal').textContent = e.target.value + '%');
+  $('rRadius').addEventListener('input', e => $('rRadiusVal').textContent = e.target.value + 'px');
+}
+
+function initObs() {
+  document.body.classList.remove('editor');
+  $('editorLayout').style.display = 'none';
+
+  const cardHtml = document.getElementById('card').outerHTML;
+  const statusHtml = document.getElementById('status').outerHTML;
+  document.body.innerHTML = cardHtml + statusHtml;
+
+  const params = new URLSearchParams(location.search);
+  let cfg;
+  try {
+    cfg = decodeCfg(params.get('cfg'));
+  } catch (e) {
+    document.body.innerHTML = '<div style="color:#ff5f6d;font-family:monospace;font-size:12px;padding:12px;">Invalid overlay link.</div>';
+    return;
+  }
+
+  applyStyle(cfg);
+  schedulePoll(cfg, false);
+}
+
+(function init() {
+  if (isObsMode()) {
+    initObs();
+  } else {
+    initEditor();
+  }
+})();
+</script>
+
+</body>
+</html>
